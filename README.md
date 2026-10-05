@@ -21,6 +21,7 @@ Choose the script for your operating system:
 **Linux**
 
 ```bash
+chmod +x setup_linux.sh
 ./setup-linux.sh
 ```
 
