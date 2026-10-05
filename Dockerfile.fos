@@ -1,0 +1,25 @@
+FROM --platform=linux/amd64 ubuntu:22.04
+
+# Install CA certificates first over HTTP so HTTPS APT mirrors can be trusted
+RUN apt-get update && apt-get install -y ca-certificates \
+    && sed -i 's|http://archive.ubuntu.com|https://mirrors.edge.kernel.org|g' /etc/apt/sources.list \
+    && sed -i 's|http://security.ubuntu.com|https://mirrors.edge.kernel.org|g' /etc/apt/sources.list \
+    && apt-get update \
+    && apt-get install -y \
+        build-essential \
+        qemu-system-x86 \
+        gdb \
+        libfl-dev \
+        wget \
+        bzip2 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /opt/cross \
+    && cd /opt/cross \
+    && wget https://github.com/YoussefRaafatNasry/fos-v2/releases/download/toolchain/i386-elf-toolchain-linux.tar.bz2 \
+    && tar xjf i386-elf-toolchain-linux.tar.bz2 \
+    && rm i386-elf-toolchain-linux.tar.bz2
+
+ENV PATH="/opt/cross/bin:${PATH}"
+
+WORKDIR /fos

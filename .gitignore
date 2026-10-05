@@ -1,0 +1,11 @@
+# FOS build output
+obj/
+
+# Generated Docker helper scripts
+run
+clean
+
+# OS/editor files
+.DS_Store
+.vscode/
+.idea/
