@@ -34,6 +34,7 @@ bash setup-macos.sh
 **Windows**
 
 ```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\setup-windows.ps1
 ```
 
