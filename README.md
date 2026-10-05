@@ -27,7 +27,7 @@ Choose the script for your operating system:
 **macOS**
 
 ```bash
-./setup-macos.sh
+bash setup-macos.sh
 ```
 
 **Windows**
