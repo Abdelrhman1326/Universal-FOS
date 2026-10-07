@@ -22,20 +22,20 @@ Choose the script for your operating system:
 
 ```bash
 chmod +x setup_linux.sh
-./setup-linux.sh
+./setup_linux.sh
 ```
 
 **macOS**
 
 ```bash
-bash setup-macos.sh
+bash setup_macos.sh
 ```
 
 **Windows**
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\setup-windows.ps1
+.\setup_windows.ps1
 ```
 
 > ** You only need to do this once.**
