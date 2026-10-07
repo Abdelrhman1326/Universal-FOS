@@ -1,5 +1,7 @@
 FROM --platform=linux/amd64 ubuntu:22.04
 
+ENV DEBIAN_FRONTEND=noninteractive
+
 # Install CA certificates first over HTTP so HTTPS APT mirrors can be trusted
 RUN apt-get update && apt-get install -y ca-certificates \
     && sed -i 's|http://archive.ubuntu.com|https://mirrors.edge.kernel.org|g' /etc/apt/sources.list \
@@ -12,6 +14,16 @@ RUN apt-get update && apt-get install -y ca-certificates \
         libfl-dev \
         wget \
         bzip2 \
+        bochs \
+        bochs-term \
+        bochs-sdl \
+        bochs-x \
+        bochsbios \
+        vgabios \
+        xvfb \
+        x11vnc \
+        novnc \
+        websockify \
     && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /opt/cross \
