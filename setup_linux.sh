@@ -9,15 +9,11 @@ echo "[*] Setting up FOS Docker environment..."
 echo "[*] Writing Dockerfile..."
 
 cat > Dockerfile.fos <<'EOF'
-
 FROM --platform=linux/amd64 ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install CA certificates first over HTTP so HTTPS APT mirrors can be trusted
 RUN apt-get update && apt-get install -y ca-certificates \
-    && sed -i 's|http://archive.ubuntu.com|https://mirrors.edge.kernel.org|g' /etc/apt/sources.list \
-    && sed -i 's|http://security.ubuntu.com|https://mirrors.edge.kernel.org|g' /etc/apt/sources.list \
     && apt-get update \
     && apt-get install -y \
         build-essential \
@@ -40,14 +36,14 @@ RUN apt-get update && apt-get install -y ca-certificates \
 
 RUN mkdir -p /opt/cross \
     && cd /opt/cross \
-    && wget https://github.com/YoussefRaafatNasry/fos-v2/releases/download/toolchain/i386-elf-toolchain-linux.tar.bz2 \
+    && wget -O i386-elf-toolchain-linux.tar.bz2 \
+        https://github.com/YoussefRaafatNasry/fos-v2/releases/download/toolchain/i386-elf-toolchain-linux.tar.bz2 \
     && tar xjf i386-elf-toolchain-linux.tar.bz2 \
     && rm i386-elf-toolchain-linux.tar.bz2
 
 ENV PATH="/opt/cross/bin:${PATH}"
 
 WORKDIR /fos
-
 EOF
 
 echo "[*] Building Docker image..."
@@ -56,79 +52,46 @@ docker build --platform linux/amd64 -t "$IMAGE" -f Dockerfile.fos .
 
 echo "[*] Checking for the project's Bochs config (.bochsrc)..."
 
-# Bochs reads .bochsrc from the project root. It is a hidden file, so plain
-# `ls` does not show it. FOS needs 256 MB of RAM, so only write a fallback
-# if the project does not already have one.
-
 if [ -f ".bochsrc" ]; then
     echo "    Found .bochsrc - keeping it."
 else
     echo "    Not found - writing a minimal .bochsrc"
 
-cat > .bochsrc <<'EOF'
-
+    cat > .bochsrc <<'EOF'
 romimage: file=./BIOS-bochs-latest_2-3
-
 vgaromimage: file=./VGABIOS-lgpl-latest
-
 vga: extension=none
-
 cpu: count=1, ips=10000000
-
 megs: 256
-
 ata0: enabled=1, ioaddr1=0x1f0, ioaddr2=0x3f0, irq=14
-
 ata0-master: type=disk, mode=flat, path="./obj/kern/bochs.img"
-
 boot: disk
-
 clock: sync=realtime, time0=local
-
 floppy_bootsig_check: disabled=0
-
 log: bochs.log
-
 panic: action=ask
-
 error: action=report
-
 info: action=ignore
-
 debug: action=ignore
-
 mouse: enabled=0
-
 private_colormap: enabled=0
-
 EOF
-
 fi
 
-# Remove the old guessed config from earlier versions of this script
 rm -f conf/bochsrc
 
 echo "[*] Generating run script..."
 
 cat > run <<'EOF'
-
 #!/bin/bash
 
-# Same steps as the Windows "Build and Run Bochs" task, but inside Docker:
-#   1. rm -rf obj && make clean && make -j8 all     (full clean rebuild)
-#   2. bochs -q                                     (uses ./.bochsrc)
-#
-#   ./run              Browser mode: opens http://localhost:6080
-#   ./run term         Terminal mode: text screen inside this terminal
-#   NOCLEAN=1 ./run   Skip the clean rebuild (faster, only runs make)
-#
-# Stop with Ctrl+C.
+set -e
 
 cd "$(dirname "$0")"
 
 MODE="${1:-web}"
 
-if [ -n "$NOCLEAN" ]; then
+if [ -n "${NOCLEAN:-}" ]; then
     BUILD="make -j8 all"
 else
     BUILD="rm -rf obj && make clean && make -j8 all"
@@ -149,29 +112,38 @@ if [ "$MODE" = "term" ]; then
         fos-env \
         bash -c "
 $BUILD || exit 1
-
 echo c > /tmp/bochs.rc
-
 bochs -rc /tmp/bochs.rc -q 'display_library: term'
 "
-
     exit
+fi
+
+if [ "$MODE" != "web" ]; then
+    echo "[!] Usage: ./run [web|term]"
+    exit 1
 fi
 
 URL="http://localhost:6080/vnc.html?autoconnect=true&resize=scale"
 
 echo "[*] Browser mode: $URL"
 
-# Open the browser as soon as the web server inside the container is up
+# Open the browser when noVNC is ready.
+# All FOS and graphical emulation processes remain inside Docker.
 (
     for i in $(seq 1 300); do
-        if curl -s -o /dev/null http://localhost:6080/vnc.html; then
-            xdg-open "$URL" >/dev/null 2>&1
-            break
+        if curl -fsS -o /dev/null http://localhost:6080/vnc.html; then
+            if [ "$(uname -s)" = "Darwin" ]; then
+                open "$URL"
+            elif command -v xdg-open >/dev/null 2>&1; then
+                xdg-open "$URL" >/dev/null 2>&1 || true
+            else
+                echo "[!] Open this URL manually: $URL"
+            fi
+            exit 0
         fi
-
         sleep 1
     done
+    echo "[!] Timed out waiting for noVNC."
 ) &
 
 docker run --rm -it \
@@ -203,7 +175,6 @@ echo c > /tmp/bochs.rc
 
 bochs -rc /tmp/bochs.rc -q 'display_library: x'
 "
-
 EOF
 
 chmod +x run
@@ -211,8 +182,9 @@ chmod +x run
 echo "[*] Generating clean script..."
 
 cat > clean <<'EOF'
-
 #!/bin/bash
+
+set -e
 
 cd "$(dirname "$0")"
 
@@ -224,35 +196,24 @@ docker run --rm \
     sh -c "rm -rf obj && make clean"
 
 echo "[*] Clean complete."
-
 EOF
 
 chmod +x clean
 
 echo ""
-
 echo "========================================"
 echo " FOS Docker setup complete!"
 echo "========================================"
-
 echo ""
-
 echo "Run FOS in your browser:"
 echo "    ./run"
-
 echo ""
-
 echo "Run FOS in this terminal:"
 echo "    ./run term"
-
 echo ""
-
-echo "Skip the full rebuild (faster):"
+echo "Skip the full rebuild:"
 echo "    NOCLEAN=1 ./run"
-
 echo ""
-
-echo "Clean build files with:"
+echo "Clean build files:"
 echo "    ./clean"
-
 echo ""
