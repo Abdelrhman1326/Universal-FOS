@@ -34,16 +34,4 @@
 
 Welcome to the FOS kernel command prompt!
 Type 'help' for a list of commands.
-FOS> run fact
-
-Environment Id= 16
-
-[ENV_START] fact - 16
-[fact 16] Please enter a number:20
-Factorial 20 = 2432902008176640000
-[fact 16] **************************************
-[fact 16] Num of PAGE faults = 0, modif = 0
-[fact 16] # PAGE IN (from disk) = 0, # PAGE OUT (on disk) = 0, # NEW PAGE ADDED (on disk) = 0
-[fact 16] Num of clocks = 1
-[fact 16] **************************************
 FOS> 

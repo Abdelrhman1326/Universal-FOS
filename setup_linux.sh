@@ -32,7 +32,31 @@ RUN apt-get update && apt-get install -y ca-certificates \
         x11vnc \
         novnc \
         websockify \
+        pkg-config \
+        libncurses-dev \
+        libx11-dev \
+        libxrandr-dev \
+        libxpm-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# Build Bochs 2.7 from source WITHOUT _FORTIFY_SOURCE, so the glibc
+# "buffer overflow detected" abort from the Ubuntu package cannot trigger.
+# It installs to /usr/local, which comes before /usr/bin in PATH.
+RUN cd /tmp \
+    && wget -O bochs.tar.gz https://sourceforge.net/projects/bochs/files/bochs/2.7/bochs-2.7.tar.gz/download \
+    && tar xzf bochs.tar.gz \
+    && cd bochs-2.7 \
+    && CFLAGS="-O2 -U_FORTIFY_SOURCE" CXXFLAGS="-O2 -U_FORTIFY_SOURCE" \
+       ./configure \
+           --enable-debugger \
+           --enable-disasm \
+           --enable-cpu-level=6 \
+           --enable-x86-64=no \
+           --with-term \
+           --with-x11 \
+    && make -j"$(nproc)" \
+    && make install \
+    && cd / && rm -rf /tmp/bochs*
 
 RUN mkdir -p /opt/cross \
     && cd /opt/cross \
@@ -41,7 +65,7 @@ RUN mkdir -p /opt/cross \
     && tar xjf i386-elf-toolchain-linux.tar.bz2 \
     && rm i386-elf-toolchain-linux.tar.bz2
 
-ENV PATH="/opt/cross/bin:${PATH}"
+ENV PATH="/opt/cross/bin:/usr/local/bin:${PATH}"
 
 WORKDIR /fos
 EOF
@@ -107,13 +131,18 @@ echo "[*] Using the project's Bochs config: .bochsrc"
 if [ "$MODE" = "term" ]; then
     echo "[*] Terminal mode. To quit: Ctrl+C, then type q and press Enter."
 
+    # Fixed 80x25 screen avoids buffer problems in Bochs's ncurses GUI,
+    # and the speaker is disabled to remove the ALSA errors.
     docker run --rm -it \
+        -e TERM=xterm \
         -v "$PWD":/fos \
         fos-env \
         bash -c "
 $BUILD || exit 1
+stty rows 25 cols 80
+export LINES=25 COLUMNS=80
 echo c > /tmp/bochs.rc
-bochs -rc /tmp/bochs.rc -q 'display_library: term'
+bochs -rc /tmp/bochs.rc -q 'speaker: enabled=0' 'display_library: term'
 "
     exit
 fi
@@ -128,7 +157,6 @@ URL="http://localhost:6080/vnc.html?autoconnect=true&resize=scale"
 echo "[*] Browser mode: $URL"
 
 # Open the browser when noVNC is ready.
-# All FOS and graphical emulation processes remain inside Docker.
 (
     for i in $(seq 1 300); do
         if curl -fsS -o /dev/null http://localhost:6080/vnc.html; then
@@ -173,7 +201,7 @@ websockify \
 
 echo c > /tmp/bochs.rc
 
-bochs -rc /tmp/bochs.rc -q 'display_library: x'
+bochs -rc /tmp/bochs.rc -q 'speaker: enabled=0' 'display_library: x'
 "
 EOF
 
