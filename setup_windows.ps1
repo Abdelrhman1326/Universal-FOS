@@ -177,6 +177,7 @@ Write-Host "    $URL" -ForegroundColor Cyan
 Write-Host "[*] Wait for the build to finish and Bochs to start, then open the URL above."
 Write-Host "[*] Keep this terminal open while using FOS."
 Write-Host ""
+Read-Host "Press Enter when you're ready to start the build"
 
 $script = @(
     '#!/bin/bash',
