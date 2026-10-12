@@ -127,14 +127,14 @@ function Write-LF {
     [System.IO.File]::WriteAllText($full, $Text, (New-Object System.Text.UTF8Encoding($false)))
 }
 
-# Dynamically obtain total logical CPU cores
+# Dynamically obtain total logical CPU cores.
 $NCPUS = (Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors
 if (-not $NCPUS) { $NCPUS = 8 }
 
 if ($env:NOCLEAN) {
     $BUILD = "make -j${NCPUS} all"
 } else {
-    # Delete contents of obj without unmounting the tmpfs RAM mount
+    # Delete contents of obj without unmounting the tmpfs RAM mount.
     $BUILD = "rm -rf obj/* && make -j${NCPUS} all"
 }
 
@@ -169,7 +169,14 @@ if ($Mode -eq "term") {
 }
 
 $URL = "http://localhost:6080/vnc.html?autoconnect=true&resize=scale"
-Write-Host "[*] Browser mode: $URL"
+
+Write-Host ""
+Write-Host "[*] Browser mode selected."
+Write-Host "[*] Your FOS browser interface URL is:"
+Write-Host "    $URL" -ForegroundColor Cyan
+Write-Host "[*] Wait for the build to finish and Bochs to start, then open the URL above."
+Write-Host "[*] Keep this terminal open while using FOS."
+Write-Host ""
 
 $script = @(
     '#!/bin/bash',
@@ -178,43 +185,25 @@ $script = @(
     'Xvfb :99 -screen 0 1024x768x24 >/dev/null 2>&1 &',
     'sleep 1',
     'x11vnc -display :99 -forever -shared -nopw -quiet >/dev/null 2>&1 &',
+    'sleep 1',
     'websockify --web /usr/share/novnc 6080 localhost:5900 >/dev/null 2>&1 &',
+    'sleep 1',
     'echo c > /tmp/bochs.rc',
     "bochs -rc /tmp/bochs.rc -q 'display_library: x'"
 ) -join "`n"
 
 Write-LF $Inner $script
 
-# Launch default browser automatically as soon as noVNC server is responsive
-$job = Start-Job -ScriptBlock {
-    param($targetUrl)
-    for ($i = 1; $i -le 300; $i++) {
-        try {
-            $resp = Invoke-WebRequest -Uri "http://localhost:6080/vnc.html" -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
-            if ($resp.StatusCode -eq 200) {
-                Start-Process $targetUrl
-                break
-            }
-        } catch {
-            # Waiting for web server start
-        }
-        Start-Sleep -Seconds 1
-    }
-} -ArgumentList $URL
+docker run --rm -it `
+    --cpus="${NCPUS}" `
+    --memory="8g" `
+    -p 127.0.0.1:6080:6080 `
+    -v "${PSScriptRoot}:/fos" `
+    --mount type=tmpfs,destination=/fos/obj `
+    fos-env `
+    bash /fos/.fos_inner.sh
 
-try {
-    docker run --rm -it `
-        --cpus="${NCPUS}" `
-        --memory="8g" `
-        -p 127.0.0.1:6080:6080 `
-        -v "${PSScriptRoot}:/fos" `
-        --mount type=tmpfs,destination=/fos/obj `
-        fos-env `
-        bash /fos/.fos_inner.sh
-} finally {
-    Stop-Job $job -ErrorAction SilentlyContinue
-    Remove-Job $job -Force -ErrorAction SilentlyContinue
-}
+exit $LASTEXITCODE
 '@
 
 Write-Host "[*] Generating clean.ps1 script..."
