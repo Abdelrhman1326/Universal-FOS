@@ -5,15 +5,15 @@ Set-Location $PSScriptRoot
 $IMAGE = "fos-env"
 
 # Writes text with LF-only line endings and NO BOM, so files are safe for
-# Linux (Docker, bash, Bochs) no matter what Windows PowerShell version runs this.
+# Linux (Docker, bash, Bochs) regardless of PowerShell version settings.
 function Write-LF {
     param([string]$Path, [string]$Text)
     $Text = ($Text -replace "`r`n", "`n" -replace "`r", "`n").TrimEnd("`n") + "`n"
-    $full = Join-Path $PSScriptRoot $Path
+    $full = Join-Path $PSScriptRoot$Path
     [System.IO.File]::WriteAllText($full, $Text, (New-Object System.Text.UTF8Encoding($false)))
 }
 
-Write-Host "[*] Setting up FOS Docker environment..."
+Write-Host "[*] Setting up FOS Docker environment (Windows Browser Mode)..."
 
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     Write-Host "[!] Docker was not found. Install and start Docker Desktop first." -ForegroundColor Red
@@ -79,8 +79,6 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host "[*] Checking for the project's Bochs config (.bochsrc)..."
 
-# Bochs reads .bochsrc from the project root. It is a hidden file.
-# FOS needs 256 MB of RAM, so only write a fallback if the project has none.
 if (Test-Path ".bochsrc") {
     Write-Host "    Found .bochsrc - keeping it."
 } else {
@@ -107,15 +105,12 @@ private_colormap: enabled=0
 '@
 }
 
-# Remove the old guessed config from earlier versions of this script
 if (Test-Path "conf/bochsrc") {
     Remove-Item -Force "conf/bochsrc"
 }
 
 Write-Host "[*] Generating run.ps1 script..."
 
-# NOTE: run.ps1 writes its container-side commands to a small LF-only .sh file
-# (.fos_inner.sh) and runs that, which avoids Windows quoting / CRLF problems.
 Write-LF "run.ps1" @'
 param(
     [string]$Mode = "web"
@@ -132,18 +127,21 @@ function Write-LF {
     [System.IO.File]::WriteAllText($full, $Text, (New-Object System.Text.UTF8Encoding($false)))
 }
 
+# Dynamically obtain total logical CPU cores
+$NCPUS = (Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors
+if (-not $NCPUS) { $NCPUS = 8 }
+
 if ($env:NOCLEAN) {
-    $BUILD = "make -j8 all"
+    $BUILD = "make -j${NCPUS} all"
 } else {
-    $BUILD = "rm -rf obj && make clean && make -j8 all"
+    # Delete contents of obj without unmounting the tmpfs RAM mount
+    $BUILD = "rm -rf obj/* && make -j${NCPUS} all"
 }
 
 if (-not (Test-Path ".bochsrc")) {
     Write-Host "[!] .bochsrc not found in the project root." -ForegroundColor Red
     exit 1
 }
-
-Write-Host "[*] Using the project's Bochs config: .bochsrc"
 
 $Inner = ".fos_inner.sh"
 
@@ -157,10 +155,13 @@ if ($Mode -eq "term") {
         "bochs -rc /tmp/bochs.rc -q 'display_library: term'"
     ) -join "`n"
 
-    Write-LF $Inner $script
+    Write-LF $Inner$script
 
     docker run --rm -it `
+        --cpus="${NCPUS}" `
+        --memory="8g" `
         -v "${PSScriptRoot}:/fos" `
+        --mount type=tmpfs,destination=/fos/obj `
         fos-env `
         bash /fos/.fos_inner.sh
 
@@ -184,7 +185,7 @@ $script = @(
 
 Write-LF $Inner $script
 
-# Open the browser as soon as the web server inside the container is up
+# Launch default browser automatically as soon as noVNC server is responsive
 $job = Start-Job -ScriptBlock {
     param($targetUrl)
     for ($i = 1; $i -le 300; $i++) {
@@ -195,7 +196,7 @@ $job = Start-Job -ScriptBlock {
                 break
             }
         } catch {
-            # Web server not up yet
+            # Waiting for web server start
         }
         Start-Sleep -Seconds 1
     }
@@ -203,8 +204,11 @@ $job = Start-Job -ScriptBlock {
 
 try {
     docker run --rm -it `
+        --cpus="${NCPUS}" `
+        --memory="8g" `
         -p 127.0.0.1:6080:6080 `
         -v "${PSScriptRoot}:/fos" `
+        --mount type=tmpfs,destination=/fos/obj `
         fos-env `
         bash /fos/.fos_inner.sh
 } finally {
@@ -224,8 +228,9 @@ Write-Host "[*] Cleaning FOS build files..."
 
 docker run --rm `
     -v "${PSScriptRoot}:/fos" `
+    --mount type=tmpfs,destination=/fos/obj `
     fos-env `
-    sh -c "rm -rf obj && make clean"
+    sh -c "rm -rf obj/*"
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[!] Clean failed." -ForegroundColor Red
@@ -234,16 +239,6 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host "[*] Clean complete."
 '@
-
-# Warn if the repo is likely to have CRLF line endings that break the Linux build
-$autocrlf = (git config core.autocrlf 2>$null)
-if ($autocrlf -eq "true") {
-    Write-Host ""
-    Write-Host "[!] git core.autocrlf is 'true'. Source files / Makefiles may have CRLF" -ForegroundColor Yellow
-    Write-Host "    line endings, which can break the build inside Linux. Fix with:" -ForegroundColor Yellow
-    Write-Host "        git config core.autocrlf input" -ForegroundColor Yellow
-    Write-Host "    then re-clone (or run: git rm --cached -r . ; git reset --hard)." -ForegroundColor Yellow
-}
 
 Write-Host ""
 Write-Host "========================================"
@@ -256,7 +251,7 @@ Write-Host ""
 Write-Host "Run FOS in this terminal:"
 Write-Host "    .\run.ps1 term"
 Write-Host ""
-Write-Host "Skip the full rebuild (faster):"
+Write-Host "Skip full rebuild (faster):"
 Write-Host '    $env:NOCLEAN=1; .\run.ps1'
 Write-Host ""
 Write-Host "Clean build files with:"
