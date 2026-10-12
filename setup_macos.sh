@@ -91,8 +91,8 @@ cat > run <<'EOF'
 #!/bin/bash
 
 # Same steps as the Windows "Build and Run Bochs" task, but inside Docker:
-#   1. rm -rf obj && make clean && make -j8 all     (full clean rebuild)
-#   2. bochs -q                                      (uses ./.bochsrc)
+#   1. rm -rf obj/* && make -j$(nproc) all           (full clean rebuild)
+#   2. bochs -q                                       (uses ./.bochsrc)
 #
 #   ./run             Browser mode: opens http://localhost:6080
 #   ./run term        Terminal mode: text screen inside this terminal
@@ -104,10 +104,18 @@ cd "$(dirname "$0")"
 
 MODE="${1:-web}"
 
-if [ -n "$NOCLEAN" ]; then
-    BUILD="make -j8 all"
+# Dynamically determine available CPU cores for Linux or macOS
+if command -v nproc >/dev/null 2>&1; then
+    NCPUS="$(nproc)"
 else
-    BUILD="rm -rf obj && make clean && make -j8 all"
+    NCPUS="$(sysctl -n hw.ncpu 2>/dev/null || echo 8)"
+fi
+
+if [ -n "$NOCLEAN" ]; then
+    BUILD="make -j${NCPUS} all"
+else
+    # Clear contents without deleting the mounted tmpfs 'obj' folder
+    BUILD="rm -rf obj/* && make -j${NCPUS} all"
 fi
 
 if [ ! -f .bochsrc ]; then
@@ -118,7 +126,11 @@ echo "[*] Using the project's Bochs config: .bochsrc"
 
 if [ "$MODE" = "term" ]; then
     echo "[*] Terminal mode. To quit: Ctrl+C, then type q and press Enter."
-    docker run --rm -it -v "$PWD":/fos fos-env bash -c "
+    docker run --rm -it \
+        --cpus="${NCPUS}" \
+        -v "$PWD":/fos \
+        --mount type=tmpfs,destination=/fos/obj \
+        fos-env bash -c "
 $BUILD || exit 1
 echo c > /tmp/bochs.rc
 bochs -rc /tmp/bochs.rc -q 'display_library: term'
@@ -133,14 +145,25 @@ echo "[*] Browser mode: $URL"
 (
     for i in $(seq 1 300); do
         if curl -s -o /dev/null http://localhost:6080/vnc.html; then
-            open "$URL"
+            if command -v xdg-open >/dev/null 2>&1; then
+                xdg-open "$URL" >/dev/null 2>&1 || true
+            elif command -v open >/dev/null 2>&1; then
+                open "$URL" >/dev/null 2>&1 || true
+            else
+                echo "[*] Open this in your browser: $URL"
+            fi
             break
         fi
         sleep 1
     done
 ) &
 
-docker run --rm -it -p 127.0.0.1:6080:6080 -v "$PWD":/fos fos-env bash -c "
+docker run --rm -it \
+    --cpus="${NCPUS}" \
+    -p 127.0.0.1:6080:6080 \
+    -v "$PWD":/fos \
+    --mount type=tmpfs,destination=/fos/obj \
+    fos-env bash -c "
 $BUILD || exit 1
 export DISPLAY=:99
 Xvfb :99 -screen 0 1024x768x24 >/dev/null 2>&1 &
@@ -163,7 +186,10 @@ cd "$(dirname "$0")"
 
 echo "[*] Cleaning FOS build files..."
 
-docker run --rm -v "$PWD":/fos fos-env sh -c "rm -rf obj && make clean"
+docker run --rm \
+    -v "$PWD":/fos \
+    --mount type=tmpfs,destination=/fos/obj \
+    fos-env sh -c "rm -rf obj/*"
 
 echo "[*] Clean complete."
 EOF
