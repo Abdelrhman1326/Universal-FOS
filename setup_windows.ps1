@@ -9,7 +9,7 @@ $IMAGE = "fos-env"
 function Write-LF {
     param([string]$Path, [string]$Text)
     $Text = ($Text -replace "`r`n", "`n" -replace "`r", "`n").TrimEnd("`n") + "`n"
-    $full = Join-Path $PSScriptRoot$Path
+    $full = Join-Path $PSScriptRoot $Path
     [System.IO.File]::WriteAllText($full, $Text, (New-Object System.Text.UTF8Encoding($false)))
 }
 
@@ -155,7 +155,7 @@ if ($Mode -eq "term") {
         "bochs -rc /tmp/bochs.rc -q 'display_library: term'"
     ) -join "`n"
 
-    Write-LF $Inner$script
+    Write-LF $Inner $script
 
     docker run --rm -it `
         --cpus="${NCPUS}" `
