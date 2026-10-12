@@ -82,5 +82,10 @@ FOS is rebuilt
 FOS starts
 ```
 
+### After running `./run` at any time; the FOS Should automatically launch in a browser tab, if it didn't please open the tab manually using the following link:
+```
+http://localhost:6080/vnc.html?autoconnect=true&resize=scale
+```
+
 **Setup once. Run `./run` whenever you want to build and run FOS.**
 
